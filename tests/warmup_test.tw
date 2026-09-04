@@ -1,0 +1,107 @@
+mode systems
+
+# Warmup, tested on what it reports rather than on how fast it is.
+#
+# There is no assertion here that warming makes anything faster. That is a
+# timing claim about the machine the test runs on, and a CI runner that stalls
+# for 30ms in the wrong place would turn it into a failure that says nothing.
+# What is testable is the arithmetic and the honesty of the report: that a
+# saving is only claimed when there is enough evidence for one, that a first
+# pass no slower than the rest claims nothing, and that every pass is timed.
+
+import "harness.tw" as t
+import "std/text" as tx
+import "../src/signature.tw" as sg
+import "../src/model.tw" as md
+import "../src/warmup.tw" as wu
+
+fn params() -> Tree {
+  { w: [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]],
+    b: [0.0, 0.0, 0.0] }
+}
+
+fn forward(p: Tree, x: Tensor) -> Tensor = x @ transpose(p.w) + p.b
+
+fn a_model() -> md.Model {
+  md.Model { params: params(), sig: sg.rows_of(4, 3, "logits"),
+             name: "toy", version: "toy@1.0.0", digest: "", architecture: "linear",
+             warmed: false, precision: "f64" }
+}
+
+fn timed(ns: Arr[I64]) -> wu.Warmup {
+  wu.Warmup { sizes: [1], passes: len(ns), times_ns: ns, err: "" }
+}
+
+fn every_pass_is_timed() {
+  let w = wu.warm(a_model(), [1, 2, 4], forward)
+  t.equal_str("the warmup succeeded", w.err, "")
+  t.equal_i64("three passes", w.passes, 3)
+  t.equal_i64("and three timings", len(w.times_ns), 3)
+  # Monotonic and nonzero: a duration read from the same clock twice cannot go
+  # backwards, and a forward pass that measured as zero nanoseconds would mean
+  # the clock is not being read at all.
+  t.check("each pass took a positive time", w.times_ns[0] > 0 and w.times_ns[2] > 0)
+}
+
+fn a_saving_needs_three_passes_before_it_is_claimed() {
+  # Two passes is a comparison of two numbers, not a measurement, and the
+  # difference between them is as likely to be the machine as the model.
+  t.equal_i64("nothing from one pass", wu.moved_ns(timed([9000000])), 0)
+  t.equal_i64("nothing from two", wu.moved_ns(timed([9000000, 1000000])), 0)
+  t.equal_i64(
+    "and a saving from three",
+    wu.moved_ns(timed([9000000, 1000000, 1000000])),
+    8000000,
+  )
+}
+
+fn the_median_ignores_one_slow_pass() {
+  # The reason it is a median. A single stall in the middle of a warmup drags a
+  # mean far enough to hide the first pass, which is the number being reported.
+  let w = timed([10000000, 1000000, 40000000, 1000000, 1000000])
+  t.equal_i64("the stall does not move the answer", wu.moved_ns(w), 9000000)
+}
+
+fn a_model_with_nothing_lazy_claims_nothing() {
+  # The first pass no slower than the rest is the honest answer for a model
+  # that has no lazy work in it, and a negative saving would be noise reported
+  # as a result.
+  t.equal_i64("no saving", wu.moved_ns(timed([1000000, 1000000, 1000000])), 0)
+  t.equal_i64("and none when the first was fastest", wu.moved_ns(timed([500000, 1000000, 1000000])), 0)
+}
+
+fn milliseconds_round_rather_than_truncate() {
+  t.equal_str("a round number", wu.ms_str(2000000), "2.0ms")
+  t.equal_str("one decimal", wu.ms_str(2350000), "2.4ms")
+  t.equal_str("rounding up at the boundary", wu.ms_str(2050000), "2.1ms")
+  t.equal_str("sub-millisecond", wu.ms_str(90000), "0.1ms")
+}
+
+fn the_report_says_what_was_measured_and_no_more() {
+  let quiet = wu.report(timed([1000000, 1000000]))
+  t.check("a two-pass report gives a total", tx.contains(quiet, "in 2.0ms"))
+  t.check("and claims no saving", not tx.contains(quiet, "slower than"))
+
+  let loud = wu.report(timed([9000000, 1000000, 1000000]))
+  t.check("a three-pass report claims one", tx.contains(loud, "8.0ms slower than the median"))
+}
+
+fn a_failed_warmup_reports_the_failure_and_not_a_time() {
+  let w = wu.warm(a_model(), [], forward)
+  t.check("it failed", len(w.err) > 0)
+  # The whole report, not a substring of it: a failed warmup says why it failed
+  # and stops, and asserting on a substring would let a timing be appended to
+  # the end of that sentence without anybody noticing.
+  #
+  # ("ms" was the substring here first, which the word `warms` contains.)
+  t.equal_str("and says only that", wu.report(w), "warmup failed: " + w.err)
+}
+
+every_pass_is_timed()
+a_saving_needs_three_passes_before_it_is_claimed()
+the_median_ignores_one_slow_pass()
+a_model_with_nothing_lazy_claims_nothing()
+milliseconds_round_rather_than_truncate()
+the_report_says_what_was_measured_and_no_more()
+a_failed_warmup_reports_the_failure_and_not_a_time()
+t.report("warmup")

@@ -64,10 +64,13 @@ mode systems
 # For a dense float model in twill today, warmup buys you the lazy work in your
 # own forward function and the page faults. That is a real number and it is not
 # a large one. For an int8 model it buys the dequantisation, which is large.
-# Neither is guessed at here: `Warmup.passes` and the shapes it covered are
-# reported, and the timing is yours to measure because this file does not time
-# itself. twill has `mono_ns` as of 1.7 and nothing here calls it, so that is
-# an omission rather than a limit (docs/needs.md entry 3).
+#
+# It is measured rather than guessed at. Each pass is timed with `mono_ns` and
+# the first one is reported apart from the rest, because the difference between
+# them is the whole claim this file makes: the first pass pays the lazy costs
+# and the ones after it do not, so first-minus-median is what warmup actually
+# moved off the first request. A warmup that reports only a total says nothing
+# about whether it worked.
 
 import "signature.tw" as sg
 import "model.tw" as md
@@ -77,6 +80,11 @@ struct Warmup {
   # Batch sizes warmed, in the order run.
   sizes: Arr[I64],
   passes: I64,
+  # Nanoseconds each pass took, in the order run, from `mono_ns`.
+  #
+  # Monotonic, not wall clock: this is a duration, and a wall clock can go
+  # backwards under an NTP step in the middle of a warmup that takes minutes.
+  times_ns: Arr[I64],
   err: Str,
 }
 
@@ -92,7 +100,7 @@ struct Warmup {
 # warm up. Nothing else in shuttle draws random numbers, so this is the only
 # place the seed could leak, and it is set here rather than left to the caller.
 fn warm(m: md.Model, sizes: Arr[I64], forward: fn(Tree, Tensor) -> Tensor) -> Warmup {
-  let w = Warmup { sizes: [], passes: 0, err: "" }
+  let w = Warmup { sizes: [], passes: 0, times_ns: [], err: "" }
   if len(sizes) == 0 {
     w.err = "warmup needs at least one batch size: warming nothing warms nothing"
     return w
@@ -115,7 +123,9 @@ fn warm(m: md.Model, sizes: Arr[I64], forward: fn(Tree, Tensor) -> Tensor) -> Wa
         + ": " + err
       return w
     }
+    let began = mono_ns()
     forward(m.params, x)
+    w.times_ns = arr_push(w.times_ns, mono_ns() - began)
     w.sizes = arr_push(w.sizes, n)
     w.passes = w.passes + 1
     i = i + 1
@@ -137,7 +147,7 @@ fn warm(m: md.Model, sizes: Arr[I64], forward: fn(Tree, Tensor) -> Tensor) -> Wa
 # label.
 fn warm_with(m: md.Model, sample: Tensor, sizes: Arr[I64],
              forward: fn(Tree, Tensor) -> Tensor) -> Warmup {
-  let w = Warmup { sizes: [], passes: 0, err: "" }
+  let w = Warmup { sizes: [], passes: 0, times_ns: [], err: "" }
   let err = sg.check_input(m.sig, sample)
   if len(err) > 0 {
     w.err = "the warmup sample does not match the model: " + err
@@ -152,7 +162,9 @@ fn warm_with(m: md.Model, sample: Tensor, sizes: Arr[I64],
         + " and the sample holds " + str(have) + " rows"
       return w
     }
+    let began = mono_ns()
     forward(m.params, sample[0:n])
+    w.times_ns = arr_push(w.times_ns, mono_ns() - began)
     w.sizes = arr_push(w.sizes, n)
     w.passes = w.passes + 1
     i = i + 1
@@ -193,6 +205,43 @@ fn sizes_for(max_batch: I64) -> Arr[I64] {
   [1, max_batch]
 }
 
+# Milliseconds, to one decimal place, from a nanosecond count.
+#
+# Integer arithmetic throughout: this is a duration in nanoseconds and turning
+# it into a float to divide it would trade an exact number for a rounded one in
+# order to round it.
+fn ms_str(ns: I64) -> Str {
+  let tenths = (ns + 50000) / 100000
+  str(tenths / 10) + "." + str(tenths % 10) + "ms"
+}
+
+# What warmup moved off the first request, or an empty string when it cannot
+# say.
+#
+# First pass minus the median of the rest. The median rather than the mean,
+# because one slow pass in the middle of a warmup -- a page fault, the machine
+# doing something else -- would drag a mean far enough to make the first pass
+# look ordinary, and the whole number being reported is a difference against
+# it.
+#
+# Needs three passes to mean anything: with two, "the rest" is one sample and
+# the answer is a comparison of two numbers rather than a measurement.
+fn moved_ns(w: Warmup) -> I64 {
+  if len(w.times_ns) < 3 {
+    return 0
+  }
+  let rest = sort(w.times_ns[1:len(w.times_ns)])
+  let median = rest[len(rest) / 2]
+  let first = w.times_ns[0]
+  if first <= median {
+    # The first pass was no slower than the ones after it, which is the answer
+    # for a model with nothing lazy in it. Reporting a negative saving would
+    # be reporting noise as a result.
+    return 0
+  }
+  first - median
+}
+
 fn report(w: Warmup) -> Str {
   if len(w.err) > 0 {
     return "warmup failed: " + w.err
@@ -203,6 +252,22 @@ fn report(w: Warmup) -> Str {
   while i < len(w.sizes) {
     tx.push_str(out, " " + str(w.sizes[i]))
     i = i + 1
+  }
+  let total: I64 = 0
+  let j: I64 = 0
+  while j < len(w.times_ns) {
+    total = total + w.times_ns[j]
+    j = j + 1
+  }
+  if len(w.times_ns) > 0 {
+    tx.push_str(out, " in " + ms_str(total))
+  }
+  # Only when there is enough to say it with. A warmup of one or two passes
+  # reports what it did and declines to claim a saving, which is what this file
+  # did for every number before this one existed.
+  let moved = moved_ns(w)
+  if moved > 0 {
+    tx.push_str(out, ", first pass " + ms_str(moved) + " slower than the median of the rest")
   }
   bytes_to_str(out)
 }

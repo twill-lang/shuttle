@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Warmup times itself.** Every pass is measured with `mono_ns`, and the report
+  gives the total plus, when there is enough evidence for it, how much slower
+  the first pass was than the median of the rest. That difference is what warmup
+  exists to move off the first request, and this file used to decline to say it
+  because twill had no clock; it has had one since 1.7. Nothing is claimed from
+  fewer than three passes, or when the first pass was not the slowest.
+- **`tests/warmup_test.tw`**, which the file never had. It asserts the refusals
+  rather than the speed: a timing assertion would be a claim about the machine
+  the tests run on.
+
 ## v0.1.0 (unreleased)
 
 First cut of shuttle, inference and serving for twill, written in twill.
