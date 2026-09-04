@@ -70,10 +70,21 @@ true footprint today, true is the footprint once the two pieces above land.
 **Used by:** `src/batcher.tw` (`max_hold`, which counts arrivals instead),
 `src/score.tw` (`Progress`, which has no time estimate), `src/warmup.tw`
 (which cannot report what it saved)
-**Status:** DELIVERED in twill 1.7, and shuttle has not taken it up. `mono_ns()`
+**Status: DELIVERED in twill 1.7, and taken up for warmup.** `mono_ns()`
 returns a monotonic nanosecond count and `clock_now_ms()` a wall-clock
-millisecond one; both were checked against the 1.7.1 binary. No file under
-`src/` calls either.
+millisecond one.
+
+`src/warmup.tw` now times every pass with `mono_ns` and reports the first pass
+against the median of the rest, which is the number warmup exists to produce:
+the difference between them is what was moved off the first request. It claims
+nothing from fewer than three passes, and nothing when the first pass was no
+slower than the others -- a model with no lazy work in it gets an honest silence
+rather than a saving made of noise. `tests/warmup_test.tw` covers exactly those
+refusals, and does not assert that warming is fast, which would be a claim about
+the machine rather than about the code.
+
+`src/score.tw` still prints a percentage and could extrapolate a remaining time.
+That one is unchanged.
 
 So all three consequences below still hold and none of them is twill's fault any
 more. Two of the three are now small changes: `src/warmup.tw` can time its
