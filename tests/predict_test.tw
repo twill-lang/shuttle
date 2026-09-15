@@ -1,6 +1,6 @@
 mode systems
 
-import "harness.tw" as t
+import "std/test" as t
 import "../src/signature.tw" as sg
 import "../src/model.tw" as md
 import "../src/predict.tw" as pr

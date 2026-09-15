@@ -9,7 +9,7 @@ mode systems
 # unbiased, that the sizes are what the projection says, and that a saturating
 # calibration says how much it saturated.
 
-import "harness.tw" as t
+import "std/test" as t
 import "../src/signature.tw" as sg
 import "../src/model.tw" as md
 import "../src/quant.tw" as q

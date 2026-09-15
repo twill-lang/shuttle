@@ -12,7 +12,7 @@ mode systems
 # it back through shuttle. It is the only test in the repository that touches
 # the filesystem, and it cleans up after itself.
 
-import "harness.tw" as t
+import "std/test" as t
 import "../src/model.tw" as md
 import "../src/signature.tw" as sg
 import "../../selvedge/src/archive.tw" as arc
