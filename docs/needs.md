@@ -283,15 +283,20 @@ line, now lit from the shared palette so it never drifts in colour.
 ### 12. A test runner
 
 **Would improve:** `tests/`
-**Status:** DELIVERED. `twill test tests` collects `*_test.tw`, runs each in a
-fresh interpreter and reports once. CI calls it and so does the README.
-`tests/harness.tw` stays, because the runner names the file that failed and the
-harness names the assertion inside it; deleting the three copies across three
-repositories wants a `std/test`.
+**Status:** DELIVERED, both halves. `twill test tests` collects `*_test.tw`,
+runs each in a fresh interpreter and reports once. CI calls it and so does the
+README. twill 1.11 then shipped `std/test`, which is what this entry said would
+delete the harness copies, and `tests/harness.tw` is deleted: every suite
+imports `"std/test"` and calls `check`, `equal_str`, `equal_i64` and `near` by
+the same names with the same signatures, so no assertion changed. `near` still
+takes the tolerance and never defaults it. The summary is now printed in the
+shape the runner reads, `<suite> passed <p> failed <f>` and then `OK` or
+`FAILED`, which the copy never was.
 
-`tests/harness.tw` is now the fourth identical copy of the same file across four
-repositories. A `twill test` that collected `*_test.tw`, ran each in a fresh
-interpreter and reported once would delete all four.
+What it said while the copy was here: `tests/harness.tw` stays, because the
+runner names the file that failed and the harness names the assertion inside
+it; deleting the three copies across three repositories wants a `std/test`. It
+was the fourth identical copy of the same file across four repositories.
 
 ### 13. Concurrency, and a process interface
 

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+
+- **The suites are written with `std/test`.** `tests/harness.tw` is deleted.
+  It was the fourth copy of the same harness across four repositories, and
+  `docs/needs.md` entry 12 said a `std/test` was what would delete it. twill
+  1.11 shipped one, so every `*_test.tw` imports `"std/test"` and calls the
+  same four assertions by the same names. The seven suites pass on twill
+  1.12.0, and the pin moved from 1.9.0 to 1.12.0 in `spool.toml` and CI.
+
 ### Added
 
 - **Warmup times itself.** Every pass is measured with `mono_ns`, and the report

@@ -7,7 +7,7 @@ mode systems
 # debug, which is the situation twill's checker exists to prevent and which
 # serving otherwise reintroduces.
 
-import "harness.tw" as t
+import "std/test" as t
 import "../src/signature.tw" as sg
 import "std/text" as tx
 

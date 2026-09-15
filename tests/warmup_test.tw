@@ -9,7 +9,7 @@ mode systems
 # saving is only claimed when there is enough evidence for one, that a first
 # pass no slower than the rest claims nothing, and that every pass is timed.
 
-import "harness.tw" as t
+import "std/test" as t
 import "std/text" as tx
 import "../src/signature.tw" as sg
 import "../src/model.tw" as md
